@@ -29,6 +29,16 @@ import { categoryColor, formatCurrency, type Receipt } from "@/lib/receipt-data"
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
+async function fetchReceipts() {
+  const supabase = createBrowserSupabaseClient();
+  const { data, error } = await supabase
+    .from("receipts")
+    .select("*")
+    .order("date", { ascending: false });
+  if (error) throw error;
+  return (data as Receipt[]) ?? [];
+}
+
 export function Dashboard() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,13 +51,7 @@ export function Dashboard() {
     setLoading(true);
     setError("");
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { data, error: queryError } = await supabase
-        .from("receipts")
-        .select("*")
-        .order("date", { ascending: false });
-      if (queryError) throw queryError;
-      setReceipts((data as Receipt[]) ?? []);
+      setReceipts(await fetchReceipts());
     } catch (loadError) {
       console.error(loadError);
       setError(loadError instanceof Error ? loadError.message : "Could not load receipts.");
@@ -57,8 +61,14 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
-    void loadReceipts();
-  }, [loadReceipts]);
+    void fetchReceipts()
+      .then(setReceipts)
+      .catch((loadError: unknown) => {
+        console.error(loadError);
+        setError(loadError instanceof Error ? loadError.message : "Could not load receipts.");
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   const total = useMemo(() => receipts.reduce((sum, receipt) => sum + Number(receipt.total), 0), [receipts]);
   const chartData = useMemo(() => {

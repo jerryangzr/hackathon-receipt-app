@@ -33,7 +33,7 @@ function toIsoDate(value: string) {
   const parts = value.replace(/[.\-]/g, "/").split("/").map(Number);
   if (parts.length !== 3) return "";
 
-  let [a, b, c] = parts;
+  const [a, b, c] = parts;
   let year: number;
   let month: number;
   let day: number;
