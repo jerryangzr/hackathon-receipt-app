@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Worker } from "tesseract.js";
 import {
   ArrowLeft,
   Camera,
@@ -56,7 +57,7 @@ export function UploadReceiptFlow() {
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const scanGeneration = useRef(0);
-  const workerRef = useRef<{ terminate: () => Promise<void> } | null>(null);
+  const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
     return () => {
