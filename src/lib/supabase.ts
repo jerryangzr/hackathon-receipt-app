@@ -1,5 +1,6 @@
 import { createBrowserClient } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
+
+let browserClient: ReturnType<typeof createBrowserClient> | null = null;
 
 export function hasSupabaseConfig() {
   return Boolean(
@@ -16,18 +17,28 @@ export function createBrowserSupabaseClient() {
     throw new Error("Supabase environment variables are not configured.");
   }
 
-  return createBrowserClient(url, key);
+  browserClient ??= createBrowserClient(url, key);
+  return browserClient;
 }
 
-export function createAnonServerSupabaseClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+export async function createAuthenticatedBrowserClient() {
+  const supabase = createBrowserSupabaseClient();
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
 
-  if (!url || !key) {
-    throw new Error("Supabase environment variables are not configured.");
+  let user = sessionData.session?.user;
+  if (!user) {
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error) {
+      throw new Error(
+        "Anonymous sign-in is not enabled for this Supabase project.",
+        { cause: error },
+      );
+    }
+    user = data.user ?? undefined;
   }
+  if (!user) throw new Error("Could not start a private Supabase session.");
 
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  return { supabase, user };
 }
+

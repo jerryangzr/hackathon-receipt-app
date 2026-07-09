@@ -34,7 +34,7 @@ import {
   type ReceiptDraft,
 } from "@/lib/receipt-parser";
 import { saveLocalReceipt } from "@/lib/local-receipts";
-import { createBrowserSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
+import { createAuthenticatedBrowserClient, hasSupabaseConfig } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 type Step = "pick" | "scan" | "confirm" | "saved";
@@ -47,16 +47,16 @@ const emptyDraft: ReceiptDraft = {
   items: [],
 };
 
-export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
+export function UploadReceiptFlow() {
   const [step, setStep] = useState<Step>("pick");
   const [file, setFile] = useState<File | null>(null);
-  const [storedPath, setStoredPath] = useState<string | null>(null);
   const [preview, setPreview] = useState("");
   const [progress, setProgress] = useState(0);
   const [draft, setDraft] = useState<ReceiptDraft>(emptyDraft);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const importedSharedImage = useRef(false);
+  const scanGeneration = useRef(0);
+  const workerRef = useRef<{ terminate: () => Promise<void> } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -64,9 +64,16 @@ export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
     };
   }, [preview]);
 
-  const scanReceipt = useCallback(async (selectedFile: File, existingPath?: string) => {
+  useEffect(() => {
+    return () => {
+      scanGeneration.current += 1;
+      void workerRef.current?.terminate();
+    };
+  }, []);
+
+  const scanReceipt = useCallback(async (selectedFile: File) => {
     if (!selectedFile.type.startsWith("image/")) {
-      toast.error("Choose a JPG, PNG, HEIC, or other image file.");
+      toast.error("Choose a JPG, PNG, or WebP image.");
       return;
     }
     if (selectedFile.size > 10 * 1024 * 1024) {
@@ -75,8 +82,9 @@ export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
     }
 
     if (preview) URL.revokeObjectURL(preview);
+    const generation = ++scanGeneration.current;
+    if (workerRef.current) await workerRef.current.terminate();
     setFile(selectedFile);
-    setStoredPath(existingPath ?? null);
     setPreview(URL.createObjectURL(selectedFile));
     setStep("scan");
     setProgress(4);
@@ -85,48 +93,27 @@ export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
       const { createWorker } = await import("tesseract.js");
       const worker = await createWorker("eng", 1, {
         logger: (message) => {
-          if (message.status === "recognizing text") {
+          if (generation === scanGeneration.current && message.status === "recognizing text") {
             setProgress(Math.max(8, Math.round(message.progress * 100)));
           }
         },
       });
+      workerRef.current = worker;
       const result = await worker.recognize(selectedFile);
       await worker.terminate();
+      workerRef.current = null;
+      if (generation !== scanGeneration.current) return;
       setDraft(parseReceiptText(result.data.text));
       setProgress(100);
       setStep("confirm");
     } catch (error) {
+      if (generation !== scanGeneration.current) return;
       console.error(error);
       setDraft(emptyDraft);
       setStep("confirm");
       toast.error("OCR could not read this image. You can still enter the details manually.");
     }
   }, [preview]);
-
-  useEffect(() => {
-    if (!sharedPath || importedSharedImage.current) return;
-    importedSharedImage.current = true;
-
-    const importSharedImage = async () => {
-      try {
-        const supabase = createBrowserSupabaseClient();
-        const { data, error } = await supabase.storage
-          .from("receipt-images")
-          .download(sharedPath);
-        if (error) throw error;
-        const extension = sharedPath.split(".").pop() ?? "jpg";
-        const sharedFile = new File([data], `shared-receipt.${extension}`, {
-          type: data.type || `image/${extension === "jpg" ? "jpeg" : extension}`,
-        });
-        await scanReceipt(sharedFile, sharedPath);
-      } catch (error) {
-        console.error(error);
-        toast.error("The shared receipt could not be imported.");
-      }
-    };
-
-    void importSharedImage();
-  }, [scanReceipt, sharedPath]);
 
   async function saveReceipt() {
     if (
@@ -145,32 +132,34 @@ export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
     }
 
     if (!hasSupabaseConfig()) {
-      saveLocalReceipt({
-        ...draft,
-        items: draft.items
-          .filter((item) => item.name.trim())
-          .map((item) => ({ name: item.name.trim(), price: item.price })),
-      });
-      setStep("saved");
-      toast.success("Receipt saved privately on this device");
+      try {
+        saveLocalReceipt({
+          ...draft,
+          items: draft.items
+            .filter((item) => item.name.trim())
+            .map((item) => ({ name: item.name.trim(), price: item.price })),
+        });
+        setStep("saved");
+        toast.success("Receipt saved privately on this device");
+      } catch {
+        toast.error("This browser could not store another receipt. Free some site storage and try again.");
+      }
       return;
     }
 
     setSaving(true);
+    let uploadedPath: string | null = null;
     try {
-      const supabase = createBrowserSupabaseClient();
-      let path = storedPath;
-      if (!path) {
-        const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-        path = `web/${crypto.randomUUID()}.${extension}`;
-        const { error: uploadError } = await supabase.storage
-          .from("receipt-images")
-          .upload(path, file, { contentType: file.type, upsert: false });
-        if (uploadError) throw uploadError;
-      }
+      const { supabase, user } = await createAuthenticatedBrowserClient();
+      const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      uploadedPath = `${user.id}/web/${crypto.randomUUID()}.${extension}`;
+      const { error: uploadError } = await supabase.storage
+        .from("receipt-images")
+        .upload(uploadedPath, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw uploadError;
 
-      const { data: imageData } = supabase.storage.from("receipt-images").getPublicUrl(path);
       const { error: insertError } = await supabase.from("receipts").insert({
+        user_id: user.id,
         vendor: draft.vendor.trim(),
         date: draft.date,
         total: draft.total,
@@ -179,9 +168,10 @@ export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
           name: item.name.trim(),
           price: item.price,
         })),
-        image_url: imageData.publicUrl,
+        image_url: uploadedPath,
       });
       if (insertError) {
+        await supabase.storage.from("receipt-images").remove([uploadedPath]);
         throw insertError;
       }
 
@@ -196,10 +186,12 @@ export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
   }
 
   function reset() {
+    scanGeneration.current += 1;
+    void workerRef.current?.terminate();
+    workerRef.current = null;
     if (preview) URL.revokeObjectURL(preview);
     setStep("pick");
     setFile(null);
-    setStoredPath(null);
     setPreview("");
     setProgress(0);
     setDraft(emptyDraft);

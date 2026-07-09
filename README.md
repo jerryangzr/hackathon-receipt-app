@@ -5,8 +5,9 @@ A mobile-first receipt organizer built with Next.js, Supabase, Tesseract.js, sha
 ## Setup
 
 1. Run `supabase/migrations/20260709000000_create_receipts.sql` in Supabase.
-2. Copy `.env.example` to `.env.local` and add the project values.
-3. Run `npm install` and `npm run dev`.
+2. Enable **Anonymous Sign-Ins** under Supabase Authentication settings.
+3. Copy `.env.example` to `.env.local` and add the project values.
+4. Run `npm install` and `npm run dev`.
 
 The browser upload flow performs OCR locally, asks the user to review every extracted field, and only writes a receipt after **Confirm & save receipt** is pressed.
 
@@ -22,11 +23,12 @@ Example:
 ```bash
 curl -X POST \
   -H "Content-Type: image/jpeg" \
+  -H "Authorization: Bearer $RECEIPTSNAP_API_TOKEN" \
   --data-binary @receipt.jpg \
   http://localhost:3000/api/receipts/upload
 ```
 
-The endpoint uploads the image and returns OCR-extracted draft data with `requires_confirmation: true`. It intentionally does not insert a row into `receipts`; a caller must present and explicitly confirm the draft first.
+The endpoint analyzes the image and returns OCR-extracted draft data with `requires_confirmation: true`. It intentionally does not persist the image or insert a receipt; a caller must present and explicitly confirm the draft first.
 
 ## Install on a phone
 
@@ -35,13 +37,11 @@ ReceiptSnap includes a web app manifest and mobile icons. After deploying over H
 - iPhone/iPad: Safari → Share → **Add to Home Screen**
 - Android: Chrome → menu → **Install app**
 
-Installed Android builds also register ReceiptSnap as an image share target. Sharing a receipt screenshot to ReceiptSnap opens its OCR review screen; the receipt is not added to the database until the user confirms it.
-
-iOS does not currently support the Web Share Target API for installed web apps. Receiving screenshots directly from the iOS Share Sheet requires an iOS Shortcut or native share extension. The raw-image `/api/receipts/upload` endpoint is available for that future integration.
+Receiving screenshots directly from the iOS Share Sheet requires an iOS Shortcut or native share extension. The authenticated raw-image `/api/receipts/upload` endpoint is available for that future integration.
 
 ## Security note
 
-The migration enables RLS. Because this hackathon MVP has no user accounts, read and insert access is available to Supabase `anon` and `authenticated` roles. Add authentication and owner-scoped policies before storing private production data.
+The migration enables owner-scoped RLS and a private Storage bucket. ReceiptSnap creates a persistent anonymous Supabase session for each browser, so one device cannot read another device's receipts. Link anonymous accounts to a permanent sign-in method before relying on cross-device access.
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started

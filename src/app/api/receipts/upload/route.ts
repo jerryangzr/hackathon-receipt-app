@@ -1,25 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWorker } from "tesseract.js";
 import { parseReceiptText } from "@/lib/receipt-parser";
-import { createAnonServerSupabaseClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-function extensionFor(contentType: string) {
-  const extensions: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
-  };
-  return extensions[contentType] ?? "jpg";
-}
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export async function POST(request: NextRequest) {
   try {
+    const apiToken = process.env.RECEIPTSNAP_API_TOKEN;
+    if (!apiToken) {
+      return NextResponse.json(
+        { success: false, error: "Shortcut uploads are not configured." },
+        { status: 503 },
+      );
+    }
+    if (request.headers.get("authorization") !== `Bearer ${apiToken}`) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized." },
+        { status: 401 },
+      );
+    }
+
     const contentType = request.headers.get("content-type") ?? "";
     let bytes: ArrayBuffer;
     let imageType: string;
@@ -40,9 +44,9 @@ export async function POST(request: NextRequest) {
       imageType = contentType.split(";")[0];
     }
 
-    if (!imageType.startsWith("image/")) {
+    if (!ALLOWED_IMAGE_TYPES.has(imageType)) {
       return NextResponse.json(
-        { success: false, error: "Content-Type must be an image or multipart/form-data." },
+        { success: false, error: "Content-Type must be JPG, PNG, or WebP." },
         { status: 415 },
       );
     }
@@ -62,21 +66,12 @@ export async function POST(request: NextRequest) {
       await worker.terminate();
     }
 
-    const supabase = createAnonServerSupabaseClient();
-    const path = `api/${crypto.randomUUID()}.${extensionFor(imageType)}`;
-    const { error: uploadError } = await supabase.storage
-      .from("receipt-images")
-      .upload(path, Buffer.from(bytes), { contentType: imageType, upsert: false });
-    if (uploadError) throw uploadError;
-
-    const { data } = supabase.storage.from("receipt-images").getPublicUrl(path);
-
     return NextResponse.json({
       success: true,
       receipt: parseReceiptText(rawText),
-      image_url: data.publicUrl,
       requires_confirmation: true,
-      message: "Image processed. Review and confirm the extracted data before creating a receipt.",
+      persisted: false,
+      message: "Image processed but not stored. Review and confirm the extracted data in ReceiptSnap.",
     });
   } catch (error) {
     console.error("Receipt API upload failed", error);

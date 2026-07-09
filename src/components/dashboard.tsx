@@ -33,20 +33,28 @@ import {
   type Receipt,
 } from "@/lib/receipt-data";
 import { getLocalReceipts } from "@/lib/local-receipts";
-import { createBrowserSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
+import { createAuthenticatedBrowserClient, hasSupabaseConfig } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 const CHART_COLORS = ["#2fcd70", "#111411", "#8ee8b4", "#71717a", "#b7f3cf", "#a1a1aa", "#dcfce7"];
 
 async function fetchReceipts() {
   if (!hasSupabaseConfig()) return getLocalReceipts();
-  const supabase = createBrowserSupabaseClient();
+  const { supabase } = await createAuthenticatedBrowserClient();
   const { data, error } = await supabase
     .from("receipts")
     .select("*")
     .order("date", { ascending: false });
   if (error) throw error;
-  return (data as Receipt[]) ?? [];
+  return Promise.all(
+    ((data as Receipt[]) ?? []).map(async (receipt) => {
+      if (!receipt.image_url) return receipt;
+      const { data: signedImage } = await supabase.storage
+        .from("receipt-images")
+        .createSignedUrl(receipt.image_url, 3600);
+      return { ...receipt, image_url: signedImage?.signedUrl ?? null };
+    }),
+  );
 }
 
 export function Dashboard() {
@@ -146,7 +154,7 @@ export function Dashboard() {
         <Card className="border-0 bg-white shadow-sm">
           <CardContent className="flex flex-col items-center px-6 py-16 text-center">
             <ReceiptText className="mb-4 size-9 text-muted-foreground" />
-            <h2 className="text-xl font-semibold">Connect Supabase to see your receipts</h2>
+            <h2 className="text-xl font-semibold">Could not load your receipts</h2>
             <p className="mt-2 max-w-md text-sm text-muted-foreground">{error}</p>
             <Button onClick={() => void loadReceipts()} variant="outline" className="mt-6 rounded-full">
               <RotateCcw className="size-4" /> Try again
