@@ -2,14 +2,13 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   Camera,
   LoaderCircle,
   PartyPopper,
   ReceiptText,
-  RotateCcw,
   Sparkles,
   Ticket,
   TrendingUp,
@@ -39,56 +38,63 @@ import { cn } from "@/lib/utils";
 const CHART_COLORS = ["#2fcd70", "#111411", "#8ee8b4", "#71717a", "#b7f3cf", "#a1a1aa", "#dcfce7"];
 
 async function fetchReceipts() {
-  if (!hasSupabaseConfig()) return getLocalReceipts();
-  const { supabase } = await createAuthenticatedBrowserClient();
-  const { data, error } = await supabase
-    .from("receipts")
-    .select("*")
-    .order("date", { ascending: false });
-  if (error) throw error;
-  return Promise.all(
-    ((data as Receipt[]) ?? []).map(async (receipt) => {
-      if (!receipt.image_url) return receipt;
-      const { data: signedImage } = await supabase.storage
-        .from("receipt-images")
-        .createSignedUrl(receipt.image_url, 3600);
-      return { ...receipt, image_url: signedImage?.signedUrl ?? null };
-    }),
-  );
+  if (!hasSupabaseConfig()) {
+    return { receipts: getLocalReceipts(), localMode: true };
+  }
+
+  try {
+    const remoteReceipts = await Promise.race([
+      (async () => {
+        const { supabase } = await createAuthenticatedBrowserClient();
+        const { data, error } = await supabase
+          .from("receipts")
+          .select("*")
+          .order("date", { ascending: false });
+        if (error) throw error;
+        return Promise.all(
+          ((data as Receipt[]) ?? []).map(async (receipt) => {
+            if (!receipt.image_url) return receipt;
+            const { data: signedImage } = await supabase.storage
+              .from("receipt-images")
+              .createSignedUrl(receipt.image_url, 3600);
+            return { ...receipt, image_url: signedImage?.signedUrl ?? null };
+          }),
+        );
+      })(),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("Supabase connection timed out.")), 8_000);
+      }),
+    ]);
+    return { receipts: remoteReceipts, localMode: false };
+  } catch (error) {
+    console.warn("Using private local receipt storage", error);
+    return { receipts: getLocalReceipts(), localMode: true };
+  }
 }
 
 export function Dashboard() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [localMode, setLocalMode] = useState(!hasSupabaseConfig());
   const [drawOpen, setDrawOpen] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const [winner, setWinner] = useState<Receipt | null>(null);
   const drawTimeoutRef = useRef<number | null>(null);
 
-  const loadReceipts = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setReceipts(await fetchReceipts());
-    } catch (loadError) {
-      console.error(loadError);
-      setError(loadError instanceof Error ? loadError.message : "Could not load receipts.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
     void fetchReceipts()
-      .then((data) => {
-        if (!cancelled) setReceipts(data);
+      .then((result) => {
+        if (!cancelled) {
+          setReceipts(result.receipts);
+          setLocalMode(result.localMode);
+        }
       })
       .catch((loadError: unknown) => {
         if (cancelled) return;
         console.error(loadError);
-        setError(loadError instanceof Error ? loadError.message : "Could not load receipts.");
+        setReceipts(getLocalReceipts());
+        setLocalMode(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -134,7 +140,7 @@ export function Dashboard() {
           <p className="mb-2 text-sm font-medium text-primary">Your receipt ritual</p>
           <h1 className="text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">Good afternoon.</h1>
           <p className="mt-3 text-muted-foreground">Every receipt organized. Every receipt in the draw.</p>
-          {!hasSupabaseConfig() && (
+          {localMode && (
             <Badge variant="secondary" className="mt-4 rounded-full bg-white px-3 py-1 text-zinc-600">
               Private demo mode · saved on this device
             </Badge>
@@ -150,21 +156,31 @@ export function Dashboard() {
         </Button>
       </div>
 
-      {error ? (
-        <Card className="border-0 bg-white shadow-sm">
-          <CardContent className="flex flex-col items-center px-6 py-16 text-center">
-            <ReceiptText className="mb-4 size-9 text-muted-foreground" />
-            <h2 className="text-xl font-semibold">Could not load your receipts</h2>
-            <p className="mt-2 max-w-md text-sm text-muted-foreground">{error}</p>
-            <Button onClick={() => void loadReceipts()} variant="outline" className="mt-6 rounded-full">
-              <RotateCcw className="size-4" /> Try again
-            </Button>
-          </CardContent>
-        </Card>
-      ) : loading ? (
+      {loading ? (
         <div className="grid min-h-80 place-items-center">
           <LoaderCircle className="size-7 animate-spin text-primary" />
         </div>
+      ) : receipts.length === 0 ? (
+        <Card className="overflow-hidden border-0 bg-white shadow-[0_24px_80px_rgba(0,0,0,0.07)]">
+          <CardContent className="relative flex min-h-[28rem] flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="absolute -top-24 size-72 rounded-full bg-primary/10 blur-3xl" />
+            <span className="relative mb-6 grid size-20 place-items-center rounded-3xl bg-primary text-primary-foreground shadow-[0_14px_35px_rgba(47,205,112,0.25)]">
+              <ReceiptText className="size-8" />
+            </span>
+            <h2 className="relative text-3xl font-semibold tracking-[-0.04em]">Your dashboard is ready.</h2>
+            <p className="relative mt-3 max-w-md leading-7 text-muted-foreground">
+              Add your first receipt to unlock spending totals, category insights, and a Weekly Draw entry.
+            </p>
+            <Link href="/upload" className={cn(buttonVariants({ size: "lg" }), "relative mt-7 h-12 rounded-full px-6")}>
+              <Camera className="size-5" /> Add first receipt
+            </Link>
+            <div className="relative mt-10 flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
+              <span className="rounded-full bg-zinc-100 px-3 py-1.5">Automatic categories</span>
+              <span className="rounded-full bg-zinc-100 px-3 py-1.5">Monthly totals</span>
+              <span className="rounded-full bg-zinc-100 px-3 py-1.5">Private by default</span>
+            </div>
+          </CardContent>
+        </Card>
       ) : (
         <>
           <div className="grid gap-5 md:grid-cols-3">

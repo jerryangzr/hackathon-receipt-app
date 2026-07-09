@@ -48,6 +48,13 @@ const emptyDraft: ReceiptDraft = {
   items: [],
 };
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), milliseconds);
+    promise.then(resolve, reject).finally(() => window.clearTimeout(timeout));
+  });
+}
+
 export function UploadReceiptFlow() {
   const [step, setStep] = useState<Step>("pick");
   const [file, setFile] = useState<File | null>(null);
@@ -55,7 +62,9 @@ export function UploadReceiptFlow() {
   const [progress, setProgress] = useState(0);
   const [draft, setDraft] = useState<ReceiptDraft>(emptyDraft);
   const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const scanGeneration = useRef(0);
   const workerRef = useRef<Worker | null>(null);
 
@@ -73,20 +82,75 @@ export function UploadReceiptFlow() {
   }, []);
 
   const scanReceipt = useCallback(async (selectedFile: File) => {
-    if (!selectedFile.type.startsWith("image/")) {
-      toast.error("Choose a JPG, PNG, or WebP image.");
-      return;
-    }
-    if (selectedFile.size > 10 * 1024 * 1024) {
-      toast.error("The image must be smaller than 10 MB.");
+    if (selectedFile.size > 30 * 1024 * 1024) {
+      toast.error("The image must be smaller than 30 MB.");
       return;
     }
 
-    if (preview) URL.revokeObjectURL(preview);
     const generation = ++scanGeneration.current;
     if (workerRef.current) await workerRef.current.terminate();
-    setFile(selectedFile);
-    setPreview(URL.createObjectURL(selectedFile));
+    setStep("scan");
+    setProgress(2);
+
+    let imageFile = selectedFile;
+    const isHeic =
+      /image\/hei[cf]/i.test(selectedFile.type) ||
+      /\.hei[cf]$/i.test(selectedFile.name);
+    if (isHeic) {
+      try {
+        const { default: heic2any } = await import("heic2any");
+        const converted = await withTimeout(
+          heic2any({
+            blob: selectedFile,
+            toType: "image/jpeg",
+            quality: 0.9,
+          }),
+          20_000,
+          "HEIC conversion took too long.",
+        );
+        const jpeg = Array.isArray(converted) ? converted[0] : converted;
+        imageFile = new File([jpeg], `${selectedFile.name.replace(/\.hei[cf]$/i, "")}.jpg`, {
+          type: "image/jpeg",
+        });
+      } catch (error) {
+        console.error(error);
+        setStep("pick");
+        toast.error("This HEIC photo could not be converted. Try a screenshot or JPG.");
+        return;
+      }
+    }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(imageFile.type)) {
+      setStep("pick");
+      toast.error("Choose a JPG, PNG, WebP, or HEIC image.");
+      return;
+    }
+
+    try {
+      const { default: compressImage } = await import("browser-image-compression");
+      imageFile = await withTimeout(
+        compressImage(imageFile, {
+          maxSizeMB: 4,
+          maxWidthOrHeight: 2400,
+          useWebWorker: true,
+          fileType: "image/jpeg",
+          initialQuality: 0.88,
+        }),
+        25_000,
+        "Image preparation took too long.",
+      );
+    } catch (error) {
+      console.warn("Image compression was skipped", error);
+      if (imageFile.size > 10 * 1024 * 1024) {
+        setStep("pick");
+        toast.error("This photo is too large to process. Try taking a screenshot first.");
+        return;
+      }
+    }
+    if (generation !== scanGeneration.current) return;
+
+    if (preview) URL.revokeObjectURL(preview);
+    setFile(imageFile);
+    setPreview(URL.createObjectURL(imageFile));
     setStep("scan");
     setProgress(4);
 
@@ -100,7 +164,11 @@ export function UploadReceiptFlow() {
         },
       });
       workerRef.current = worker;
-      const result = await worker.recognize(selectedFile);
+      const result = await withTimeout(
+        worker.recognize(imageFile),
+        45_000,
+        "OCR took too long.",
+      );
       await worker.terminate();
       workerRef.current = null;
       if (generation !== scanGeneration.current) return;
@@ -109,12 +177,23 @@ export function UploadReceiptFlow() {
       setStep("confirm");
     } catch (error) {
       if (generation !== scanGeneration.current) return;
+      await workerRef.current?.terminate();
+      workerRef.current = null;
       console.error(error);
       setDraft(emptyDraft);
       setStep("confirm");
       toast.error("OCR could not read this image. You can still enter the details manually.");
     }
   }, [preview]);
+
+  function continueManually() {
+    scanGeneration.current += 1;
+    void workerRef.current?.terminate();
+    workerRef.current = null;
+    setDraft({ ...emptyDraft, date: new Date().toISOString().slice(0, 10) });
+    setStep("confirm");
+    toast.info("Enter or correct the receipt details before saving.");
+  }
 
   async function saveReceipt() {
     if (
@@ -196,7 +275,8 @@ export function UploadReceiptFlow() {
     setPreview("");
     setProgress(0);
     setDraft(emptyDraft);
-    if (inputRef.current) inputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
   }
 
   if (step === "saved") {
@@ -246,6 +326,14 @@ export function UploadReceiptFlow() {
           </div>
           <Progress value={progress} className="mt-8 h-2" />
           <p className="mt-2 text-right text-xs tabular-nums text-muted-foreground">{progress}%</p>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={continueManually}
+            className="mt-5 w-full rounded-full text-muted-foreground"
+          >
+            Taking too long? Enter details manually
+          </Button>
         </CardContent>
       </Card>
     );
@@ -410,10 +498,29 @@ export function UploadReceiptFlow() {
         Upload a receipt and ReceiptSnap will pull out the important details for you to review.
       </p>
       <Card className="mt-10 border-0 bg-white p-3 shadow-[0_24px_80px_rgba(0,0,0,0.08)]">
-        <CardContent className="p-0">
+        <CardContent
+          className={cn(
+            "flex min-h-80 flex-col items-center justify-center rounded-[1.35rem] border border-dashed bg-zinc-50/80 px-6 py-10 transition",
+            dragging ? "border-primary bg-primary/[0.06]" : "border-zinc-200",
+          )}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDragging(false);
+            const selectedFile = event.dataTransfer.files?.[0];
+            if (selectedFile) void scanReceipt(selectedFile);
+          }}
+        >
           <input
-            ref={inputRef}
-            id="receipt-image"
+            ref={cameraInputRef}
+            id="receipt-camera"
             type="file"
             accept="image/*"
             capture="environment"
@@ -423,19 +530,37 @@ export function UploadReceiptFlow() {
               if (selectedFile) void scanReceipt(selectedFile);
             }}
           />
-          <label
-            htmlFor="receipt-image"
-            className="group flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-[1.35rem] border border-dashed border-zinc-200 bg-zinc-50/80 px-6 transition hover:border-primary/60 hover:bg-primary/[0.03]"
-          >
-            <span className="mb-6 grid size-20 place-items-center rounded-3xl bg-primary text-primary-foreground shadow-[0_12px_32px_rgba(47,205,112,0.25)] transition group-hover:-translate-y-1">
-              <Camera className="size-9" strokeWidth={1.8} />
-            </span>
-            <span className="text-xl font-semibold">Take a photo or upload</span>
-            <span className="mt-2 text-sm text-muted-foreground">JPG, PNG, WebP · up to 10 MB</span>
-            <span className="mt-6 inline-flex items-center gap-2 rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white">
-              <Upload className="size-4" /> Choose receipt
-            </span>
-          </label>
+          <input
+            ref={galleryInputRef}
+            id="receipt-gallery"
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => {
+              const selectedFile = event.target.files?.[0];
+              if (selectedFile) void scanReceipt(selectedFile);
+            }}
+          />
+          <span className="mb-6 grid size-20 place-items-center rounded-3xl bg-primary text-primary-foreground shadow-[0_12px_32px_rgba(47,205,112,0.25)]">
+            <Camera className="size-9" strokeWidth={1.8} />
+          </span>
+          <span className="text-xl font-semibold">{dragging ? "Drop it here" : "Add your receipt"}</span>
+          <span className="mt-2 text-sm text-muted-foreground">JPG, PNG, WebP, HEIC · up to 10 MB</span>
+          <div className="mt-7 flex w-full max-w-sm flex-col gap-3 sm:flex-row">
+            <label
+              htmlFor="receipt-camera"
+              className="inline-flex h-12 flex-1 cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground shadow-[0_10px_24px_rgba(47,205,112,0.2)] transition hover:bg-primary/80"
+            >
+              <Camera className="size-4" /> Take photo
+            </label>
+            <label
+              htmlFor="receipt-gallery"
+              className="inline-flex h-12 flex-1 cursor-pointer items-center justify-center gap-2 rounded-full bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800"
+            >
+              <Upload className="size-4" /> Photo library
+            </label>
+          </div>
+          <span className="mt-5 hidden text-xs text-muted-foreground sm:block">or drag and drop an image here</span>
         </CardContent>
       </Card>
       <div className="mt-6 flex items-center justify-center gap-5 text-xs text-muted-foreground">
