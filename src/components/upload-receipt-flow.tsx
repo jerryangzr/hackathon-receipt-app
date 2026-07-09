@@ -40,7 +40,7 @@ type Step = "pick" | "scan" | "confirm" | "saved";
 
 const emptyDraft: ReceiptDraft = {
   vendor: "",
-  date: new Date().toISOString().slice(0, 10),
+  date: "",
   total: 0,
   category: "Other",
   items: [],
@@ -100,8 +100,18 @@ export function UploadReceiptFlow() {
   }
 
   async function saveReceipt() {
-    if (!file || !draft.vendor.trim() || !draft.date || draft.total < 0) {
+    if (
+      !file ||
+      !draft.vendor.trim() ||
+      !draft.date ||
+      !Number.isFinite(draft.total) ||
+      draft.total < 0
+    ) {
       toast.error("Add a vendor, valid date, and total before saving.");
+      return;
+    }
+    if (draft.items.some((item) => !Number.isFinite(item.price) || item.price < 0)) {
+      toast.error("Make sure every line item has a valid, non-negative price.");
       return;
     }
 
@@ -383,7 +393,7 @@ export function UploadReceiptFlow() {
               <Camera className="size-9" strokeWidth={1.8} />
             </span>
             <span className="text-xl font-semibold">Take a photo or upload</span>
-            <span className="mt-2 text-sm text-muted-foreground">JPG, PNG, HEIC · up to 10 MB</span>
+            <span className="mt-2 text-sm text-muted-foreground">JPG, PNG, WebP · up to 10 MB</span>
             <span className="mt-6 inline-flex items-center gap-2 rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white">
               <Upload className="size-4" /> Choose receipt
             </span>

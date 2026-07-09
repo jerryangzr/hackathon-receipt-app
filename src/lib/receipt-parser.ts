@@ -22,11 +22,14 @@ export const RECEIPT_CATEGORIES = [
   "Other",
 ] as const;
 
-const MONEY = /(?:NT\$|TWD|USD|\$)?\s*(-?\d{1,6}(?:[,.]\d{2}))/i;
+const MONEY = /(?:NT\$|TWD|USD|\$)?\s*(-?(?:(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}|\d+,\d{2}))/i;
 const TOTAL_WORDS = /\b(grand\s*total|total|amount\s*due|balance\s*due)\b/i;
 
 function toNumber(value: string) {
-  return Number(value.replace(",", ""));
+  if (/^-?\d+,\d{2}$/.test(value)) {
+    return Number(value.replace(",", "."));
+  }
+  return Number(value.replace(/,/g, ""));
 }
 
 function toIsoDate(value: string) {
@@ -40,10 +43,12 @@ function toIsoDate(value: string) {
 
   if (a > 1900) {
     [year, month, day] = [a, b, c];
+  } else if (a > 12 && a <= 31 && b <= 12) {
+    [day, month, year] = [a, b, c];
   } else {
     [month, day, year] = [a, b, c];
-    if (year < 100) year += 2000;
   }
+  if (year < 100) year += 2000;
 
   const date = new Date(Date.UTC(year, month - 1, day));
   if (
@@ -89,7 +94,9 @@ export function parseReceiptText(rawText: string): ReceiptDraft {
 
   const items = lines.flatMap((line) => {
     if (TOTAL_WORDS.test(line) || /\b(subtotal|tax|change|cash|visa|mastercard)\b/i.test(line)) return [];
-    const match = line.match(/^(.{2,}?)\s+(?:NT\$|TWD|USD|\$)?\s*(\d{1,6}(?:[,.]\d{2}))$/i);
+    const match = line.match(
+      /^(.{2,}?)\s+(?:NT\$|TWD|USD|\$)?\s*((?:(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}|\d+,\d{2}))$/i,
+    );
     if (!match) return [];
     const price = toNumber(match[2]);
     return Number.isFinite(price) ? [{ name: match[1].trim(), price }] : [];

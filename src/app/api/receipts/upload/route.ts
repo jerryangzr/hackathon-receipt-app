@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWorker } from "tesseract.js";
 import { parseReceiptText } from "@/lib/receipt-parser";
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createAnonServerSupabaseClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       await worker.terminate();
     }
 
-    const supabase = createServerSupabaseClient();
+    const supabase = createAnonServerSupabaseClient();
     const path = `api/${crypto.randomUUID()}.${extensionFor(imageType)}`;
     const { error: uploadError } = await supabase.storage
       .from("receipt-images")

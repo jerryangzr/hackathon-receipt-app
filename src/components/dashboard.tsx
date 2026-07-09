@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   Camera,
@@ -25,7 +25,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { categoryColor, formatCurrency, type Receipt } from "@/lib/receipt-data";
+import {
+  categoryColor,
+  formatCurrency,
+  formatReceiptDate,
+  formatReceiptDateFull,
+  type Receipt,
+} from "@/lib/receipt-data";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -46,6 +52,7 @@ export function Dashboard() {
   const [drawOpen, setDrawOpen] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const [winner, setWinner] = useState<Receipt | null>(null);
+  const drawTimeoutRef = useRef<number | null>(null);
 
   const loadReceipts = useCallback(async () => {
     setLoading(true);
@@ -61,13 +68,25 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     void fetchReceipts()
-      .then(setReceipts)
+      .then((data) => {
+        if (!cancelled) setReceipts(data);
+      })
       .catch((loadError: unknown) => {
+        if (cancelled) return;
         console.error(loadError);
         setError(loadError instanceof Error ? loadError.message : "Could not load receipts.");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (drawTimeoutRef.current !== null) {
+        window.clearTimeout(drawTimeoutRef.current);
+      }
+    };
   }, []);
 
   const total = useMemo(() => receipts.reduce((sum, receipt) => sum + Number(receipt.total), 0), [receipts]);
@@ -86,9 +105,13 @@ export function Dashboard() {
     setWinner(null);
     setDrawOpen(true);
     setDrawing(true);
-    window.setTimeout(() => {
+    if (drawTimeoutRef.current !== null) {
+      window.clearTimeout(drawTimeoutRef.current);
+    }
+    drawTimeoutRef.current = window.setTimeout(() => {
       setWinner(receipts[Math.floor(Math.random() * receipts.length)]);
       setDrawing(false);
+      drawTimeoutRef.current = null;
     }, 1400);
   }
 
@@ -211,7 +234,7 @@ export function Dashboard() {
                           <p className="truncate text-sm font-medium">{receipt.vendor}</p>
                           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                             <CalendarDays className="size-3" />
-                            {new Date(`${receipt.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                            {formatReceiptDate(receipt.date)}
                           </p>
                         </div>
                         <div className="text-right">
@@ -260,7 +283,7 @@ export function Dashboard() {
                   <div>
                     <p className="text-xs font-medium uppercase tracking-widest text-primary">Winner</p>
                     <p className="mt-1 text-lg font-semibold">{winner.vendor}</p>
-                    <p className="text-sm text-muted-foreground">{new Date(`${winner.date}T00:00:00`).toLocaleDateString()}</p>
+                    <p className="text-sm text-muted-foreground">{formatReceiptDateFull(winner.date)}</p>
                   </div>
                   <p className="text-xl font-semibold">{formatCurrency(Number(winner.total))}</p>
                 </div>

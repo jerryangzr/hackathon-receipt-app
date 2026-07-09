@@ -30,3 +30,25 @@ export function categoryColor(category: string) {
   };
   return colors[category] ?? colors.Other;
 }
+
+function dateParts(date: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return null;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year: match[1], month, day };
+}
+
+export function formatReceiptDate(date: string) {
+  const parts = dateParts(date);
+  if (!parts) return date;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[parts.month - 1]} ${parts.day}`;
+}
+
+export function formatReceiptDateFull(date: string) {
+  const parts = dateParts(date);
+  if (!parts) return date;
+  return `${parts.month}/${parts.day}/${parts.year}`;
+}
