@@ -11,6 +11,7 @@ import {
   FileImage,
   LoaderCircle,
   Plus,
+  ScanText,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -38,7 +39,7 @@ import { saveLocalReceipt } from "@/lib/local-receipts";
 import { createAuthenticatedBrowserClient, hasSupabaseConfig } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
-type Step = "pick" | "scan" | "confirm" | "saved";
+type Step = "pick" | "selected" | "scan" | "confirm" | "saved";
 
 const emptyDraft: ReceiptDraft = {
   vendor: "",
@@ -80,6 +81,26 @@ export function UploadReceiptFlow() {
       void workerRef.current?.terminate();
     };
   }, []);
+
+  function selectReceipt(selectedFile: File) {
+    if (!selectedFile.type.startsWith("image/")) {
+      toast.error("Choose an image from your camera or photo library.");
+      return;
+    }
+    if (selectedFile.size > 30 * 1024 * 1024) {
+      toast.error("The image must be smaller than 30 MB.");
+      return;
+    }
+
+    scanGeneration.current += 1;
+    void workerRef.current?.terminate();
+    workerRef.current = null;
+    if (preview) URL.revokeObjectURL(preview);
+    setFile(selectedFile);
+    setPreview(URL.createObjectURL(selectedFile));
+    setProgress(0);
+    setStep("selected");
+  }
 
   const scanReceipt = useCallback(async (selectedFile: File) => {
     if (selectedFile.size > 30 * 1024 * 1024) {
@@ -309,6 +330,40 @@ export function UploadReceiptFlow() {
     );
   }
 
+  if (step === "selected") {
+    return (
+      <Card className="mx-auto max-w-xl overflow-hidden border-0 bg-white py-0 shadow-[0_24px_80px_rgba(0,0,0,0.08)]">
+        <div className="relative min-h-[24rem] bg-zinc-950 sm:min-h-[30rem]">
+          {preview ? (
+            <Image src={preview} alt="Selected receipt" fill unoptimized className="object-contain" />
+          ) : (
+            <div className="grid min-h-[24rem] place-items-center text-white/50"><FileImage className="size-12" /></div>
+          )}
+          <span className="absolute left-4 top-4 rounded-full bg-black/65 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
+            Ready to analyze
+          </span>
+        </div>
+        <CardContent className="px-5 py-5 sm:px-7 sm:py-6">
+          <p className="truncate text-sm text-muted-foreground">{file?.name}</p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => file && void scanReceipt(file)}
+              className="h-13 flex-1 rounded-full text-base shadow-[0_10px_26px_rgba(47,205,112,0.22)]"
+            >
+              <ScanText className="size-5" /> Analyze receipt
+            </Button>
+            <Button type="button" variant="outline" size="lg" onClick={reset} className="h-13 rounded-full px-6">
+              Choose another
+            </Button>
+          </div>
+          <p className="mt-4 text-center text-xs text-muted-foreground">Nothing is uploaded or saved until you review and confirm.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (step === "scan") {
     return (
       <Card className="mx-auto max-w-xl border-0 bg-white shadow-[0_24px_80px_rgba(0,0,0,0.08)]">
@@ -500,7 +555,7 @@ export function UploadReceiptFlow() {
       <Card className="mt-10 border-0 bg-white p-3 shadow-[0_24px_80px_rgba(0,0,0,0.08)]">
         <CardContent
           className={cn(
-            "flex min-h-80 flex-col items-center justify-center rounded-[1.35rem] border border-dashed bg-zinc-50/80 px-6 py-10 transition",
+            "flex min-h-[26rem] flex-col items-center justify-center rounded-[1.35rem] border border-dashed bg-zinc-50/80 px-6 py-12 transition sm:min-h-[24rem]",
             dragging ? "border-primary bg-primary/[0.06]" : "border-zinc-200",
           )}
           onDragEnter={(event) => {
@@ -515,49 +570,47 @@ export function UploadReceiptFlow() {
             event.preventDefault();
             setDragging(false);
             const selectedFile = event.dataTransfer.files?.[0];
-            if (selectedFile) void scanReceipt(selectedFile);
+            if (selectedFile) selectReceipt(selectedFile);
           }}
         >
-          <input
-            ref={cameraInputRef}
-            id="receipt-camera"
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            onChange={(event) => {
-              const selectedFile = event.target.files?.[0];
-              if (selectedFile) void scanReceipt(selectedFile);
-            }}
-          />
-          <input
-            ref={galleryInputRef}
-            id="receipt-gallery"
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            onChange={(event) => {
-              const selectedFile = event.target.files?.[0];
-              if (selectedFile) void scanReceipt(selectedFile);
-            }}
-          />
           <span className="mb-6 grid size-20 place-items-center rounded-3xl bg-primary text-primary-foreground shadow-[0_12px_32px_rgba(47,205,112,0.25)]">
             <Camera className="size-9" strokeWidth={1.8} />
           </span>
           <span className="text-xl font-semibold">{dragging ? "Drop it here" : "Add your receipt"}</span>
-          <span className="mt-2 text-sm text-muted-foreground">JPG, PNG, WebP, HEIC · up to 10 MB</span>
+          <span className="mt-2 text-sm text-muted-foreground">JPG, PNG, WebP, HEIC · up to 30 MB</span>
           <div className="mt-7 flex w-full max-w-sm flex-col gap-3 sm:flex-row">
             <label
-              htmlFor="receipt-camera"
-              className="inline-flex h-12 flex-1 cursor-pointer items-center justify-center gap-2 rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground shadow-[0_10px_24px_rgba(47,205,112,0.2)] transition hover:bg-primary/80"
+              className="relative inline-flex h-13 flex-1 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-full bg-primary px-5 text-sm font-medium text-primary-foreground shadow-[0_10px_24px_rgba(47,205,112,0.2)] transition hover:bg-primary/80"
             >
               <Camera className="size-4" /> Take photo
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                aria-label="Take a receipt photo"
+                className="absolute inset-0 cursor-pointer opacity-0"
+                onChange={(event) => {
+                  const selectedFile = event.target.files?.[0];
+                  if (selectedFile) selectReceipt(selectedFile);
+                }}
+              />
             </label>
             <label
-              htmlFor="receipt-gallery"
-              className="inline-flex h-12 flex-1 cursor-pointer items-center justify-center gap-2 rounded-full bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800"
+              className="relative inline-flex h-13 flex-1 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-full bg-zinc-900 px-5 text-sm font-medium text-white transition hover:bg-zinc-800"
             >
               <Upload className="size-4" /> Photo library
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
+                aria-label="Choose a receipt from photo library"
+                className="absolute inset-0 cursor-pointer opacity-0"
+                onChange={(event) => {
+                  const selectedFile = event.target.files?.[0];
+                  if (selectedFile) selectReceipt(selectedFile);
+                }}
+              />
             </label>
           </div>
           <span className="mt-5 hidden text-xs text-muted-foreground sm:block">or drag and drop an image here</span>

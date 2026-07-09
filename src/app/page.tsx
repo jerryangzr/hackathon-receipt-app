@@ -20,16 +20,19 @@ import { cn } from "@/lib/utils";
 export default function Home() {
   return (
     <main className="flex-1 overflow-hidden">
-      <section className="relative px-5 pb-20 pt-14 sm:px-8 sm:pb-28 sm:pt-24">
-        <div className="pointer-events-none absolute left-1/2 top-10 -z-10 size-[36rem] -translate-x-1/2 rounded-full bg-primary/10 blur-[100px]" />
+      <section className="relative isolate px-5 pb-20 pt-14 sm:px-8 sm:pb-28 sm:pt-24">
+        <div className="pointer-events-none absolute inset-0 -z-20 bg-[radial-gradient(circle_at_12%_18%,rgba(47,205,112,0.16),transparent_28%),radial-gradient(circle_at_88%_22%,rgba(183,243,207,0.42),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.75),transparent_72%)]" />
+        <div className="pointer-events-none absolute -left-40 top-20 -z-10 size-[28rem] rounded-full bg-emerald-200/30 blur-[110px]" />
+        <div className="pointer-events-none absolute -right-32 top-0 -z-10 size-[34rem] rounded-full bg-primary/15 blur-[120px]" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
         <div className="mx-auto grid max-w-6xl items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="max-w-2xl">
             <Badge className="mb-6 rounded-full border-0 bg-primary/12 px-3 py-1.5 text-primary">
               <Sparkles className="size-3.5" /> Receipts, finally useful
             </Badge>
-            <h1 className="text-5xl font-semibold leading-[0.96] tracking-[-0.065em] sm:text-7xl">
+            <h1 className="text-5xl font-semibold leading-[0.96] tracking-[-0.065em] text-zinc-950 sm:text-7xl">
               Your spending,
-              <span className="block text-primary">beautifully clear.</span>
+              <span className="block bg-gradient-to-r from-emerald-500 via-primary to-emerald-300 bg-clip-text text-transparent">beautifully clear.</span>
             </h1>
             <p className="mt-7 max-w-xl text-lg leading-8 text-muted-foreground sm:text-xl">
               Snap any receipt. ReceiptSnap reads the details, lets you verify every field, and turns purchases into a simple financial picture.
@@ -135,7 +138,7 @@ export default function Home() {
       </section>
 
       <section id="insights" className="scroll-mt-20 px-5 sm:px-8">
-        <div className="reveal mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-zinc-950 px-6 py-16 text-white sm:px-12 sm:py-20">
+        <div className="reveal relative mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-[radial-gradient(circle_at_85%_15%,rgba(47,205,112,0.2),transparent_30%),linear-gradient(135deg,#090d0a,#181d19)] px-6 py-16 text-white shadow-[0_35px_100px_rgba(15,23,18,0.18)] sm:px-12 sm:py-20">
           <div className="grid items-center gap-14 lg:grid-cols-2">
             <div>
               <Badge className="border-0 bg-white/10 text-primary">Built for useful patterns</Badge>
@@ -200,7 +203,8 @@ export default function Home() {
       </section>
 
       <section className="px-5 pb-8 sm:px-8">
-        <div className="mx-auto max-w-6xl rounded-[2rem] bg-primary px-6 py-14 text-center sm:px-12 sm:py-20">
+        <div className="relative mx-auto max-w-6xl overflow-hidden rounded-[2rem] bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.42),transparent_28%),linear-gradient(135deg,#42df83,#25bd64)] px-6 py-14 text-center shadow-[0_30px_80px_rgba(47,205,112,0.22)] sm:px-12 sm:py-20">
+          <div className="pointer-events-none absolute -right-16 -top-24 size-72 rounded-full border border-white/25" />
           <h2 className="text-4xl font-semibold tracking-[-0.05em] text-zinc-950 sm:text-5xl">Make your next receipt count.</h2>
           <p className="mx-auto mt-4 max-w-xl text-lg text-black/55">Your first organized purchase is one photo away.</p>
           <Link href="/upload" className={cn(buttonVariants({ size: "lg" }), "mt-8 h-13 rounded-full bg-zinc-950 px-7 text-base text-white hover:bg-zinc-800")}>
