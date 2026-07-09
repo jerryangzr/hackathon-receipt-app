@@ -20,6 +20,20 @@ export const metadata: Metadata = {
     template: "%s · ReceiptSnap",
   },
   description: "Snap, review, and organize every receipt.",
+  manifest: "/manifest.webmanifest",
+  applicationName: "ReceiptSnap",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "ReceiptSnap",
+  },
+  icons: {
+    icon: [
+      { url: "/receiptsnap-icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({
@@ -32,6 +46,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <meta name="theme-color" content="#2fcd70" />
+      </head>
       <body className="flex min-h-full flex-col">
         <AppHeader />
         {children}

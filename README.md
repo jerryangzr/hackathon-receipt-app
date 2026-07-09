@@ -28,6 +28,17 @@ curl -X POST \
 
 The endpoint uploads the image and returns OCR-extracted draft data with `requires_confirmation: true`. It intentionally does not insert a row into `receipts`; a caller must present and explicitly confirm the draft first.
 
+## Install on a phone
+
+ReceiptSnap includes a web app manifest and mobile icons. After deploying over HTTPS:
+
+- iPhone/iPad: Safari → Share → **Add to Home Screen**
+- Android: Chrome → menu → **Install app**
+
+Installed Android builds also register ReceiptSnap as an image share target. Sharing a receipt screenshot to ReceiptSnap opens its OCR review screen; the receipt is not added to the database until the user confirms it.
+
+iOS does not currently support the Web Share Target API for installed web apps. Receiving screenshots directly from the iOS Share Sheet requires an iOS Shortcut or native share extension. The raw-image `/api/receipts/upload` endpoint is available for that future integration.
+
 ## Security note
 
 The migration enables RLS. Because this hackathon MVP has no user accounts, read and insert access is available to Supabase `anon` and `authenticated` roles. Add authentication and owner-scoped policies before storing private production data.

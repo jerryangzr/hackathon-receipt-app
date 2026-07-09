@@ -14,7 +14,7 @@ import {
   Ticket,
   TrendingUp,
 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,8 @@ import {
 } from "@/lib/receipt-data";
 import { createBrowserSupabaseClient } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+
+const CHART_COLORS = ["#2fcd70", "#111411", "#8ee8b4", "#71717a", "#b7f3cf", "#a1a1aa", "#dcfce7"];
 
 async function fetchReceipts() {
   const supabase = createBrowserSupabaseClient();
@@ -186,19 +188,42 @@ export function Dashboard() {
               </CardHeader>
               <CardContent className="px-3 pb-5 sm:px-7">
                 {chartData.length ? (
-                  <div className="h-64 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData} margin={{ top: 15, right: 5, left: 5, bottom: 0 }}>
-                        <CartesianGrid vertical={false} stroke="#eeeeec" />
-                        <XAxis dataKey="category" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 12 }} />
+                  <div className="grid min-h-64 items-center gap-4 sm:grid-cols-[1fr_auto]">
+                    <div className="h-64 min-w-0">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={chartData}
+                            dataKey="amount"
+                            nameKey="category"
+                            innerRadius={58}
+                            outerRadius={96}
+                            paddingAngle={3}
+                            stroke="none"
+                          >
+                            {chartData.map((entry, index) => (
+                              <Cell key={entry.category} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                            ))}
+                          </Pie>
                         <Tooltip
-                          cursor={{ fill: "#f4f4f2" }}
                           formatter={(value) => formatCurrency(Number(value))}
                           contentStyle={{ border: 0, borderRadius: 14, boxShadow: "0 12px 35px rgba(0,0,0,.1)" }}
                         />
-                        <Bar dataKey="amount" fill="#2fcd70" radius={[8, 8, 2, 2]} maxBarSize={48} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="space-y-3 px-4 pb-5 sm:px-0 sm:pr-4">
+                      {chartData.map((entry, index) => (
+                        <div key={entry.category} className="flex min-w-40 items-center gap-2 text-sm">
+                          <span
+                            className="size-2.5 rounded-full"
+                            style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                          />
+                          <span className="flex-1 text-muted-foreground">{entry.category}</span>
+                          <span className="font-medium tabular-nums">{formatCurrency(entry.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : (
                   <div className="grid h-64 place-items-center text-sm text-muted-foreground">Your category chart will appear here.</div>

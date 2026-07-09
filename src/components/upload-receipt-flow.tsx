@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Camera,
@@ -46,14 +46,16 @@ const emptyDraft: ReceiptDraft = {
   items: [],
 };
 
-export function UploadReceiptFlow() {
+export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
   const [step, setStep] = useState<Step>("pick");
   const [file, setFile] = useState<File | null>(null);
+  const [storedPath, setStoredPath] = useState<string | null>(null);
   const [preview, setPreview] = useState("");
   const [progress, setProgress] = useState(0);
   const [draft, setDraft] = useState<ReceiptDraft>(emptyDraft);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const importedSharedImage = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -61,7 +63,7 @@ export function UploadReceiptFlow() {
     };
   }, [preview]);
 
-  async function scanReceipt(selectedFile: File) {
+  const scanReceipt = useCallback(async (selectedFile: File, existingPath?: string) => {
     if (!selectedFile.type.startsWith("image/")) {
       toast.error("Choose a JPG, PNG, HEIC, or other image file.");
       return;
@@ -73,6 +75,7 @@ export function UploadReceiptFlow() {
 
     if (preview) URL.revokeObjectURL(preview);
     setFile(selectedFile);
+    setStoredPath(existingPath ?? null);
     setPreview(URL.createObjectURL(selectedFile));
     setStep("scan");
     setProgress(4);
@@ -97,7 +100,32 @@ export function UploadReceiptFlow() {
       setStep("confirm");
       toast.error("OCR could not read this image. You can still enter the details manually.");
     }
-  }
+  }, [preview]);
+
+  useEffect(() => {
+    if (!sharedPath || importedSharedImage.current) return;
+    importedSharedImage.current = true;
+
+    const importSharedImage = async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        const { data, error } = await supabase.storage
+          .from("receipt-images")
+          .download(sharedPath);
+        if (error) throw error;
+        const extension = sharedPath.split(".").pop() ?? "jpg";
+        const sharedFile = new File([data], `shared-receipt.${extension}`, {
+          type: data.type || `image/${extension === "jpg" ? "jpeg" : extension}`,
+        });
+        await scanReceipt(sharedFile, sharedPath);
+      } catch (error) {
+        console.error(error);
+        toast.error("The shared receipt could not be imported.");
+      }
+    };
+
+    void importSharedImage();
+  }, [scanReceipt, sharedPath]);
 
   async function saveReceipt() {
     if (
@@ -118,12 +146,15 @@ export function UploadReceiptFlow() {
     setSaving(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-      const path = `web/${crypto.randomUUID()}.${extension}`;
-      const { error: uploadError } = await supabase.storage
-        .from("receipt-images")
-        .upload(path, file, { contentType: file.type, upsert: false });
-      if (uploadError) throw uploadError;
+      let path = storedPath;
+      if (!path) {
+        const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+        path = `web/${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabase.storage
+          .from("receipt-images")
+          .upload(path, file, { contentType: file.type, upsert: false });
+        if (uploadError) throw uploadError;
+      }
 
       const { data: imageData } = supabase.storage.from("receipt-images").getPublicUrl(path);
       const { error: insertError } = await supabase.from("receipts").insert({
@@ -155,6 +186,7 @@ export function UploadReceiptFlow() {
     if (preview) URL.revokeObjectURL(preview);
     setStep("pick");
     setFile(null);
+    setStoredPath(null);
     setPreview("");
     setProgress(0);
     setDraft(emptyDraft);
