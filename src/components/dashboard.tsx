@@ -74,7 +74,6 @@ async function fetchReceipts() {
 
 export function Dashboard() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [loading, setLoading] = useState(true);
   const [localMode, setLocalMode] = useState(!hasSupabaseConfig());
   const [drawOpen, setDrawOpen] = useState(false);
   const [drawing, setDrawing] = useState(false);
@@ -96,9 +95,6 @@ export function Dashboard() {
         setReceipts(getLocalReceipts());
         setLocalMode(true);
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
     return () => {
       cancelled = true;
       if (drawTimeoutRef.current !== null) {
@@ -148,7 +144,7 @@ export function Dashboard() {
         </div>
         <Button
           onClick={runDraw}
-          disabled={!receipts.length || loading}
+          disabled={!receipts.length}
           size="lg"
           className="h-12 rounded-full px-6 shadow-[0_10px_28px_rgba(47,205,112,0.25)]"
         >
@@ -156,11 +152,7 @@ export function Dashboard() {
         </Button>
       </div>
 
-      {loading ? (
-        <div className="grid min-h-80 place-items-center">
-          <LoaderCircle className="size-7 animate-spin text-primary" />
-        </div>
-      ) : receipts.length === 0 ? (
+      {receipts.length === 0 ? (
         <Card className="overflow-hidden border-0 bg-white shadow-[0_24px_80px_rgba(0,0,0,0.07)]">
           <CardContent className="relative flex min-h-[28rem] flex-col items-center justify-center px-6 py-16 text-center">
             <div className="absolute -top-24 size-72 rounded-full bg-primary/10 blur-3xl" />
@@ -213,7 +205,7 @@ export function Dashboard() {
           </div>
 
           <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-            <Card className="border-0 bg-white shadow-sm">
+            <Card id="insights" className="scroll-mt-24 border-0 bg-white shadow-sm">
               <CardHeader className="px-7 pt-7">
                 <CardTitle className="text-base">Spending by category</CardTitle>
               </CardHeader>
@@ -262,7 +254,7 @@ export function Dashboard() {
               </CardContent>
             </Card>
 
-            <Card className="border-0 bg-white shadow-sm">
+            <Card id="recent" className="scroll-mt-24 border-0 bg-white shadow-sm">
               <CardHeader className="flex-row items-center justify-between px-7 pt-7">
                 <CardTitle className="text-base">Recent receipts</CardTitle>
                 <Badge variant="secondary" className="rounded-full">{receipts.length}</Badge>

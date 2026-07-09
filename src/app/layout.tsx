@@ -49,7 +49,7 @@ export default function RootLayout({
       <head>
         <meta name="theme-color" content="#2fcd70" />
       </head>
-      <body className="flex min-h-full flex-col">
+      <body className="flex min-h-full flex-col pb-20 sm:pb-0">
         <AppHeader />
         {children}
         <Toaster richColors position="top-center" />
