@@ -48,6 +48,13 @@ const emptyDraft: ReceiptDraft = {
   items: [],
 };
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), milliseconds);
+    promise.then(resolve, reject).finally(() => window.clearTimeout(timeout));
+  });
+}
+
 export function UploadReceiptFlow() {
   const [step, setStep] = useState<Step>("pick");
   const [file, setFile] = useState<File | null>(null);
@@ -75,25 +82,32 @@ export function UploadReceiptFlow() {
   }, []);
 
   const scanReceipt = useCallback(async (selectedFile: File) => {
-    if (selectedFile.size > 10 * 1024 * 1024) {
-      toast.error("The image must be smaller than 10 MB.");
+    if (selectedFile.size > 30 * 1024 * 1024) {
+      toast.error("The image must be smaller than 30 MB.");
       return;
     }
+
+    const generation = ++scanGeneration.current;
+    if (workerRef.current) await workerRef.current.terminate();
+    setStep("scan");
+    setProgress(2);
 
     let imageFile = selectedFile;
     const isHeic =
       /image\/hei[cf]/i.test(selectedFile.type) ||
       /\.hei[cf]$/i.test(selectedFile.name);
     if (isHeic) {
-      setStep("scan");
-      setProgress(2);
       try {
         const { default: heic2any } = await import("heic2any");
-        const converted = await heic2any({
-          blob: selectedFile,
-          toType: "image/jpeg",
-          quality: 0.9,
-        });
+        const converted = await withTimeout(
+          heic2any({
+            blob: selectedFile,
+            toType: "image/jpeg",
+            quality: 0.9,
+          }),
+          20_000,
+          "HEIC conversion took too long.",
+        );
         const jpeg = Array.isArray(converted) ? converted[0] : converted;
         imageFile = new File([jpeg], `${selectedFile.name.replace(/\.hei[cf]$/i, "")}.jpg`, {
           type: "image/jpeg",
@@ -106,13 +120,35 @@ export function UploadReceiptFlow() {
       }
     }
     if (!["image/jpeg", "image/png", "image/webp"].includes(imageFile.type)) {
+      setStep("pick");
       toast.error("Choose a JPG, PNG, WebP, or HEIC image.");
       return;
     }
 
+    try {
+      const { default: compressImage } = await import("browser-image-compression");
+      imageFile = await withTimeout(
+        compressImage(imageFile, {
+          maxSizeMB: 4,
+          maxWidthOrHeight: 2400,
+          useWebWorker: true,
+          fileType: "image/jpeg",
+          initialQuality: 0.88,
+        }),
+        25_000,
+        "Image preparation took too long.",
+      );
+    } catch (error) {
+      console.warn("Image compression was skipped", error);
+      if (imageFile.size > 10 * 1024 * 1024) {
+        setStep("pick");
+        toast.error("This photo is too large to process. Try taking a screenshot first.");
+        return;
+      }
+    }
+    if (generation !== scanGeneration.current) return;
+
     if (preview) URL.revokeObjectURL(preview);
-    const generation = ++scanGeneration.current;
-    if (workerRef.current) await workerRef.current.terminate();
     setFile(imageFile);
     setPreview(URL.createObjectURL(imageFile));
     setStep("scan");
@@ -128,7 +164,11 @@ export function UploadReceiptFlow() {
         },
       });
       workerRef.current = worker;
-      const result = await worker.recognize(imageFile);
+      const result = await withTimeout(
+        worker.recognize(imageFile),
+        45_000,
+        "OCR took too long.",
+      );
       await worker.terminate();
       workerRef.current = null;
       if (generation !== scanGeneration.current) return;
@@ -137,12 +177,23 @@ export function UploadReceiptFlow() {
       setStep("confirm");
     } catch (error) {
       if (generation !== scanGeneration.current) return;
+      await workerRef.current?.terminate();
+      workerRef.current = null;
       console.error(error);
       setDraft(emptyDraft);
       setStep("confirm");
       toast.error("OCR could not read this image. You can still enter the details manually.");
     }
   }, [preview]);
+
+  function continueManually() {
+    scanGeneration.current += 1;
+    void workerRef.current?.terminate();
+    workerRef.current = null;
+    setDraft({ ...emptyDraft, date: new Date().toISOString().slice(0, 10) });
+    setStep("confirm");
+    toast.info("Enter or correct the receipt details before saving.");
+  }
 
   async function saveReceipt() {
     if (
@@ -275,6 +326,14 @@ export function UploadReceiptFlow() {
           </div>
           <Progress value={progress} className="mt-8 h-2" />
           <p className="mt-2 text-right text-xs tabular-nums text-muted-foreground">{progress}%</p>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={continueManually}
+            className="mt-5 w-full rounded-full text-muted-foreground"
+          >
+            Taking too long? Enter details manually
+          </Button>
         </CardContent>
       </Card>
     );
