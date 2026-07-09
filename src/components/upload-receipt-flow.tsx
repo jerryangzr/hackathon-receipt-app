@@ -28,12 +28,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createBrowserSupabaseClient } from "@/lib/supabase";
 import {
   parseReceiptText,
   RECEIPT_CATEGORIES,
   type ReceiptDraft,
 } from "@/lib/receipt-parser";
+import { saveLocalReceipt } from "@/lib/local-receipts";
+import { createBrowserSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 type Step = "pick" | "scan" | "confirm" | "saved";
@@ -140,6 +141,18 @@ export function UploadReceiptFlow({ sharedPath }: { sharedPath?: string }) {
     }
     if (draft.items.some((item) => !Number.isFinite(item.price) || item.price < 0)) {
       toast.error("Make sure every line item has a valid, non-negative price.");
+      return;
+    }
+
+    if (!hasSupabaseConfig()) {
+      saveLocalReceipt({
+        ...draft,
+        items: draft.items
+          .filter((item) => item.name.trim())
+          .map((item) => ({ name: item.name.trim(), price: item.price })),
+      });
+      setStep("saved");
+      toast.success("Receipt saved privately on this device");
       return;
     }
 

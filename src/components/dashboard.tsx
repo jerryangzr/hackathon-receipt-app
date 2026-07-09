@@ -32,12 +32,14 @@ import {
   formatReceiptDateFull,
   type Receipt,
 } from "@/lib/receipt-data";
-import { createBrowserSupabaseClient } from "@/lib/supabase";
+import { getLocalReceipts } from "@/lib/local-receipts";
+import { createBrowserSupabaseClient, hasSupabaseConfig } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 const CHART_COLORS = ["#2fcd70", "#111411", "#8ee8b4", "#71717a", "#b7f3cf", "#a1a1aa", "#dcfce7"];
 
 async function fetchReceipts() {
+  if (!hasSupabaseConfig()) return getLocalReceipts();
   const supabase = createBrowserSupabaseClient();
   const { data, error } = await supabase
     .from("receipts")
@@ -124,6 +126,11 @@ export function Dashboard() {
           <p className="mb-2 text-sm font-medium text-primary">Your receipt ritual</p>
           <h1 className="text-4xl font-semibold tracking-[-0.05em] sm:text-5xl">Good afternoon.</h1>
           <p className="mt-3 text-muted-foreground">Every receipt organized. Every receipt in the draw.</p>
+          {!hasSupabaseConfig() && (
+            <Badge variant="secondary" className="mt-4 rounded-full bg-white px-3 py-1 text-zinc-600">
+              Private demo mode · saved on this device
+            </Badge>
+          )}
         </div>
         <Button
           onClick={runDraw}
