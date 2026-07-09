@@ -127,6 +127,7 @@
   }
   html {
     @apply font-sans;
+    scroll-behavior: smooth;
   }
 }
 
@@ -159,9 +160,33 @@
   background: hsl(calc(var(--i) * 27deg) 80% 60%);
 }
 
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(2rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@supports (animation-timeline: view()) {
+  .reveal {
+    animation: reveal both ease-out;
+    animation-timeline: view();
+    animation-range: entry 8% cover 32%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
   .scan-line,
-  .confetti {
+  .confetti,
+  .reveal {
     animation: none;
   }
 }
